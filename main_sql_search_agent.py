@@ -6,7 +6,6 @@ from langchain_community.utilities import SQLDatabase
 from langchain_core.tools import tool
 from langgraph.runtime import get_runtime
 from langchain.agents import create_agent
-from langgraph.types import StreamMode
 
 load_dotenv()
 
@@ -56,6 +55,14 @@ question = "List all the tables"
 for step in agent.stream(
     { "messages": question},
     context=RuntimeContext(db=db),
-    stream_mode="values"
+    stream_mode=["values", "custom"]
 ):
-    step["messages"][-1].pretty_print()
+    if step[0] == "values":
+        step[1]["messages"][-1].pretty_print()
+    elif step[0] == "custom":
+        print(step[1])
+    #step["messages"][-1].pretty_print()
+
+# NOTE: stream_mode="values" is used to get the return after each message
+# stream_mode="messages" is used to return token by token - perfect for chatbot
+# stream_mode="custom" is used to return custom values
