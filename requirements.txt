@@ -5,3 +5,5 @@ langchain-openai
 langgraph
 python-dotenv
 psycopg2-binary 
+mcp
+langchain-mcp-adapters

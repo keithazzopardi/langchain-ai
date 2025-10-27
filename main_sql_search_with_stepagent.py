@@ -1,30 +1,19 @@
 from dataclasses import dataclass
 import os
 from dotenv import load_dotenv
+from langchain.agents.middleware.types import ModelRequest, dynamic_prompt
 from langchain_openai import ChatOpenAI
 from langchain_community.utilities import SQLDatabase
 from langchain_core.tools import tool
 from langgraph.runtime import get_runtime
 from langchain.agents import create_agent
+from langgraph.checkpoint.memory import InMemorySaver
 
 load_dotenv()
 
 db = SQLDatabase.from_uri(os.getenv("DATABASE_URL"))
 
 #print(db.run("SELECT * FROM ALBUM LIMIT 5"))
-
-@dataclass
-class RuntimeContext:
-    db: SQLDatabase
-
-@tool
-def execute_query(query: str) -> str:
-    """ Execute a SQL query """
-    db = get_runtime().context.db
-    try:
-        return db.run(query)
-    except Exception as e:
-        return str(e)
 
 prompt = """
 You are a Postgres database expert.
@@ -35,8 +24,36 @@ Rules:
 - When you need the data, call execute_query with one select query
 - No updates. Only Selects
 - Limit 5 rows
+{table_restrictions}
 - Prefer explicit column list
 """
+
+@dataclass
+class RuntimeContext:
+    isEmployee: bool
+    db: SQLDatabase
+
+@dynamic_prompt
+def dynamic_system_prompt_employee(request: ModelRequest) -> str:
+    table_limits = ""
+    if request.runtime.context.isEmployee:
+        table_limits = "There's no limits."
+    else:
+        table_limits = "Limit access to these tables: Album, Artists, Genre, Playlist, PlaylistTrack, Track."
+    
+    return prompt.format(table_restrictions=table_limits)
+
+
+@tool
+def execute_query(query: str) -> str:
+    """ Execute a SQL query """
+    db = get_runtime().context.db
+    try:
+        return db.run(query)
+    except Exception as e:
+        return str(e)
+
+
 
 model = ChatOpenAI(
   api_key=os.getenv("OPENROUTER_API_KEY"),
@@ -45,17 +62,30 @@ model = ChatOpenAI(
   temperature=0 # Controls the randomness. Between 0-
 )
 
-agent = create_agent(model, tools=[execute_query], system_prompt=prompt, context_schema=RuntimeContext)
+agent = create_agent(model, 
+tools=[execute_query], 
+system_prompt=prompt, 
+context_schema=RuntimeContext,
+middleware=[
+    dynamic_system_prompt_employee
+    ]
+)
 
 with open(os.path.basename(__file__).replace(".py", ".png"), "wb") as file:
     file.write(agent.get_graph().draw_mermaid_png())
 
 #question = "Which table has the highest number of records"
-question = "List all the tables"
+#question = "List all the tables"
+#question = "What were the titles?"
+question = "What is the latest invoice in the invoice table?"
+memory = InMemorySaver()
+thread_id = "1"
 for step in agent.stream(
     { "messages": question},
-    context=RuntimeContext(db=db),
-    stream_mode=["values", "custom"]
+    { "configurable": {"thread_id": thread_id}},
+    context=RuntimeContext(isEmployee=True, db=db),
+    stream_mode=["values", "custom"],
+    checkpointer=memory
 ):
     if step[0] == "values":
         step[1]["messages"][-1].pretty_print()
