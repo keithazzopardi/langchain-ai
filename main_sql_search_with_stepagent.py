@@ -61,14 +61,16 @@ model = ChatOpenAI(
   model="google/gemini-2.5-flash-lite-preview-09-2025",
   temperature=0 # Controls the randomness. Between 0-
 )
+memory = InMemorySaver()
 
 agent = create_agent(model, 
-tools=[execute_query], 
-system_prompt=prompt, 
-context_schema=RuntimeContext,
-middleware=[
-    dynamic_system_prompt_employee
-    ]
+    tools=[execute_query], 
+    system_prompt=prompt, 
+    context_schema=RuntimeContext,
+    middleware=[
+        dynamic_system_prompt_employee
+        ],
+    checkpointer=memory,    
 )
 
 with open(os.path.basename(__file__).replace(".py", ".png"), "wb") as file:
@@ -78,14 +80,12 @@ with open(os.path.basename(__file__).replace(".py", ".png"), "wb") as file:
 #question = "List all the tables"
 #question = "What were the titles?"
 question = "What is the latest invoice in the invoice table?"
-memory = InMemorySaver()
 thread_id = "1"
 for step in agent.stream(
     { "messages": question},
     { "configurable": {"thread_id": thread_id}},
     context=RuntimeContext(isEmployee=True, db=db),
     stream_mode=["values", "custom"],
-    checkpointer=memory
 ):
     if step[0] == "values":
         step[1]["messages"][-1].pretty_print()

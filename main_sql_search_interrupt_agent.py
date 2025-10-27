@@ -49,12 +49,11 @@ def dynamic_system_prompt_employee(request: ModelRequest) -> str:
 @tool
 def execute_query(query: str) -> str:
     """ Execute a SQL query """
-    db = get_runtime().context.db
+    db = get_runtime(RuntimeContext).context.db
     try:
         return db.run(query)
     except Exception as e:
         return str(e)
-
 
 
 model = ChatOpenAI(
@@ -64,67 +63,65 @@ model = ChatOpenAI(
   temperature=0 # Controls the randomness. Between 0-
 )
 
-agent = create_agent(model, 
-tools=[execute_query], 
-system_prompt=prompt, 
-context_schema=RuntimeContext,
-middleware=[
-    dynamic_system_prompt_employee,
-    HumanInTheLoopMiddleware(
-        interrupt_on= {"execute_query": { "allowed_decisions": ["accept", "reject", "skip"]}},
-    )
-    ]
+
+agent = create_agent(
+    model=model,
+    tools=[execute_query],
+    system_prompt=prompt,
+    checkpointer=InMemorySaver(),
+    context_schema=RuntimeContext,
+    middleware=[
+        dynamic_system_prompt_employee,
+        HumanInTheLoopMiddleware(
+            interrupt_on= {"execute_query": {"allowed_decisions": ["approve", "reject"]}},
+        ),
+    ],
 )
 
 with open(os.path.basename(__file__).replace(".py", ".png"), "wb") as file:
     file.write(agent.get_graph().draw_mermaid_png())
 
-#question = "Which table has the highest number of records"
-#question = "List all the tables"
-#question = "What were the titles?"
 question = "What is the latest invoice in the invoice table?"
-memory = InMemorySaver()
-config = { "configurable": {"thread_id": 1}} 
+config = {"configurable": {"thread_id": "1"}}
+
 result = agent.invoke(
-    { "messages": [("user", question)]},
-    config, 
-    context=RuntimeContext(isEmployee=True, db=db),
-    checkpointer=memory
+    {"messages": [{"role": "user", "content": question}]},
+    config=config,
+    context=RuntimeContext(isEmployee=True, db=db)
 )
 
 while "__interrupt__" in result:
     description = result['__interrupt__'][-1].value['action_requests'][-1]['description']
     print(description)
-    input_text = input("Select an option:")
+    input_text = input("Select an option: ")
+    
     if input_text == "accept":
         result = agent.invoke(
-                Command(
-                    resume={"decisions": [{"type": "approve"}]}
-                ),
-                config=config, 
-                context=RuntimeContext(isEmployee=True, db=db),
-                checkpointer=memory
-            )
+            Command(
+                resume={"decisions": [{"type": "approve"}]}
+            ),
+            config=config,
+        context=RuntimeContext(isEmployee=True, db=db),
+    )
     elif input_text == "reject":
         result = agent.invoke(
             Command(
-                resume={
-                    "decisions": [{"type": "reject", "message": "the database is offline."}]
-                }
+                resume={"decisions": [{"type": "reject"}]}
             ),
             config=config,
-            context=RuntimeContext(isEmployee=True, db=db),
-            checkpointer=memory
-        )
+        context=RuntimeContext(isEmployee=True, db=db),
+    )
     elif input_text == "skip":
         result = agent.invoke(
             Command(
                 resume={"decisions": [{"type": "skip"}]}
             ),
             config=config,
-            context=RuntimeContext(isEmployee=True, db=db),
-            checkpointer=memory
-        )
+        context=RuntimeContext(isEmployee=True, db=db),
+    )
     else:
-        print("Invalid option. Please choose accept, reject, or skip.")
+        print("Invalid option. Please choose accept, reject or skip.")
         continue
+
+for msg in result["messages"]:
+    msg.pretty_print()
