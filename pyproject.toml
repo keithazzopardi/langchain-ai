@@ -1,0 +1,15 @@
+[project]
+name = "langchain-ai"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langchain>=1.0.2",
+    "langchain-community>=0.4",
+    "langchain-core>=1.0.1",
+    "langchain-openai>=1.0.1",
+    "langgraph>=1.0.1",
+    "psycopg2-binary>=2.9.11",
+    "python-dotenv>=1.2.1",
+]
